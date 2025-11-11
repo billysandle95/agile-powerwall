@@ -121,9 +121,6 @@ def update_powerwall_tariff():
 
     _update_powerwall_tariff()
 
-    IMPORT_RATES.reset()
-    EXPORT_RATES.reset()
-
     if not get_tariff_setting(IMPORT_RATES.current_tariff, "maintain_history", False):
         WEEK_SCHEDULES.reset()
     if not get_tariff_setting(EXPORT_RATES.current_tariff, "maintain_history", False):
