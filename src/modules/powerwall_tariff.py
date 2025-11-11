@@ -63,46 +63,36 @@ def is_midweek(weekday):
     return weekday >= 0 and weekday <= 4
 
 
-def _safe_less_than(x, y):
-    return y is not None and x < y
-
-
 class Rates:
     def __init__(self):
         self.previous_tariff = None
         self.previous_day = []
-        self._previous_day_updated = None
         self.current_tariff = None
         self.current_day = []
-        self._current_day_updated = None
         self.next_tariff = None
         self.next_day = []
-        self._next_day_updated = None
 
     def update_previous_day(self, tariff_code, rates):
         self.previous_tariff = tariff_code
         self.previous_day = rates
-        self._previous_day_updated = dt.date.today()
 
     def update_current_day(self, tariff_code, rates):
         self.current_tariff = tariff_code
         self.current_day = rates
-        self._current_day_updated = dt.date.today()
 
     def update_next_day(self, tariff_code, rates):
         self.next_tariff = tariff_code
         self.next_day = rates
-        self._next_day_updated = dt.date.today()
 
     def is_valid(self):
-        if self._current_day_updated is None or self._previous_day_updated != self._current_day_updated or self._next_day_updated != self._current_day_updated:
-            pending = []
-            if self._previous_day_updated is None or _safe_less_than(self._previous_day_updated, self._current_day_updated) or _safe_less_than(self._previous_day_updated, self._next_day_updated):
-                pending.append("previous day")
-            if self._current_day_updated is None or _safe_less_than(self._current_day_updated, self._previous_day_updated) or _safe_less_than(self._current_day_updated, self._next_day_updated):
-                pending.append("current day")
-            if self._next_day_updated is None or _safe_less_than(self._next_day_updated, self._previous_day_updated) or _safe_less_than(self._next_day_updated, self._current_day_updated):
-                pending.append("next day")
+        pending = []
+        if not self.previous_day:
+            pending.append("previous day")
+        if not self.current_day:
+            pending.append("current day")
+        if not self.next_day:
+            pending.append("next day")
+        if pending:
             raise ValueError(f"Waiting for rate data: {', '.join(pending)}")
 
         if len(self.previous_day) > 0 and len(self.current_day) > 0:
@@ -134,9 +124,7 @@ class Rates:
         return day_rates
 
     def reset(self):
-        self._previous_day_updated = None
-        self._current_day_updated = None
-        self._next_day_updated = None
+        pass
 
 
 class Schedule:
