@@ -67,43 +67,18 @@ class Rates:
     def __init__(self):
         self.previous_tariff = None
         self.previous_day = []
-        self._previous_day_date = None
         self.current_tariff = None
         self.current_day = []
-        self._current_day_date = None
         self.next_tariff = None
         self.next_day = []
-        self._next_day_date = None
-
-    def _get_day_date(self, rates):
-        if not rates:
-            return None
-
-        start = rates[0]["start"]
-        if isinstance(start, str):
-            start = dt.datetime.fromisoformat(start)
-        if start.tzinfo is None:
-            start = start.replace(tzinfo=dt.timezone.utc)
-        else:
-            start = start.astimezone(dt.timezone.utc)
-        return start.date()
-
-    def _clear_next_day(self):
-        self.next_tariff = None
-        self.next_day = []
-        self._next_day_date = None
 
     def update_previous_day(self, tariff_code, rates):
         self.previous_tariff = tariff_code
         self.previous_day = rates
-        self._previous_day_date = self._get_day_date(rates)
 
     def update_current_day(self, tariff_code, rates):
         self.current_tariff = tariff_code
         self.current_day = rates
-        self._current_day_date = self._get_day_date(rates)
-        if self._next_day_date and self._current_day_date and self._next_day_date <= self._current_day_date:
-            self._clear_next_day()
 
     def update_next_day(self, tariff_code, rates):
         next_day_date = self._get_day_date(rates)
@@ -111,7 +86,6 @@ class Rates:
             return
         self.next_tariff = tariff_code
         self.next_day = rates
-        self._next_day_date = next_day_date
 
     def is_valid(self):
         pending = []
@@ -165,13 +139,7 @@ class Rates:
         return day_rates
 
     def reset(self):
-        self.previous_tariff = None
-        self.previous_day = []
-        self._previous_day_date = None
-        self.current_tariff = None
-        self.current_day = []
-        self._current_day_date = None
-        self._clear_next_day()
+        pass
 
 
 class Schedule:
