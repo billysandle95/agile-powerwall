@@ -30,6 +30,8 @@ TARIFF_CACHE = (0, None)
 
 tariff.RATE_FUNCS.set_helpers(state.get, state.getattr)
 
+MANUAL_REFRESH_ENTITY = pyscript.app_config.get("manual_refresh_button")
+
 
 def debug(msg):
     log.debug(msg)
@@ -120,9 +122,6 @@ def update_powerwall_tariff():
             return
 
     _update_powerwall_tariff()
-
-    IMPORT_RATES.reset()
-    EXPORT_RATES.reset()
 
     if not get_tariff_setting(IMPORT_RATES.current_tariff, "maintain_history", False):
         WEEK_SCHEDULES.reset()
@@ -299,6 +298,11 @@ def update_tariff_data_at_start_of_day(**kwargs):
     _update_powerwall_tariff()
 
 
+@time_trigger("cron(15 2 * * *)")
+def update_tariff_data_for_overnight_gap(**kwargs):
+    _update_powerwall_tariff()
+
+
 @service("powerwall.refresh_tariff_data")
 def refresh_tariff_data():
     """yaml
@@ -306,6 +310,14 @@ def refresh_tariff_data():
     description: Immediately refreshes Powerwall tariff data with the current values
     """
     _update_powerwall_tariff()
+
+
+if MANUAL_REFRESH_ENTITY:
+
+    @state_trigger(f"{MANUAL_REFRESH_ENTITY}")
+    def manual_refresh_triggered(value=None, **kwargs):
+        debug(f"Manual refresh triggered by {MANUAL_REFRESH_ENTITY}")
+        refresh_tariff_data()
 
 
 @service("powerwall.get_tariff_data", supports_response="only")

@@ -63,47 +63,78 @@ def is_midweek(weekday):
     return weekday >= 0 and weekday <= 4
 
 
-def _safe_less_than(x, y):
-    return y is not None and x < y
-
-
 class Rates:
     def __init__(self):
         self.previous_tariff = None
         self.previous_day = []
-        self._previous_day_updated = None
+        self._previous_day_date = None
         self.current_tariff = None
         self.current_day = []
-        self._current_day_updated = None
+        self._current_day_date = None
         self.next_tariff = None
         self.next_day = []
-        self._next_day_updated = None
+        self._next_day_date = None
+
+    def _get_day_date(self, rates):
+        if not rates:
+            return None
+
+        start = rates[0]["start"]
+        if isinstance(start, str):
+            start = dt.datetime.fromisoformat(start)
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=dt.timezone.utc)
+        else:
+            start = start.astimezone(dt.timezone.utc)
+        return start.date()
+
+    def _clear_next_day(self):
+        self.next_tariff = None
+        self.next_day = []
+        self._next_day_date = None
 
     def update_previous_day(self, tariff_code, rates):
         self.previous_tariff = tariff_code
         self.previous_day = rates
-        self._previous_day_updated = dt.date.today()
+        self._previous_day_date = self._get_day_date(rates)
 
     def update_current_day(self, tariff_code, rates):
         self.current_tariff = tariff_code
         self.current_day = rates
-        self._current_day_updated = dt.date.today()
+        self._current_day_date = self._get_day_date(rates)
+        if self._next_day_date and self._current_day_date and self._next_day_date <= self._current_day_date:
+            self._clear_next_day()
 
     def update_next_day(self, tariff_code, rates):
+        next_day_date = self._get_day_date(rates)
+        if self._current_day_date and next_day_date and next_day_date <= self._current_day_date:
+            return
         self.next_tariff = tariff_code
         self.next_day = rates
-        self._next_day_updated = dt.date.today()
+        self._next_day_date = next_day_date
 
     def is_valid(self):
-        if self._current_day_updated is None or self._previous_day_updated != self._current_day_updated or self._next_day_updated != self._current_day_updated:
-            pending = []
-            if self._previous_day_updated is None or _safe_less_than(self._previous_day_updated, self._current_day_updated) or _safe_less_than(self._previous_day_updated, self._next_day_updated):
-                pending.append("previous day")
-            if self._current_day_updated is None or _safe_less_than(self._current_day_updated, self._previous_day_updated) or _safe_less_than(self._current_day_updated, self._next_day_updated):
-                pending.append("current day")
-            if self._next_day_updated is None or _safe_less_than(self._next_day_updated, self._previous_day_updated) or _safe_less_than(self._next_day_updated, self._current_day_updated):
-                pending.append("next day")
+        pending = []
+        if not self.previous_day:
+            pending.append("previous day")
+        if not self.current_day:
+            pending.append("current day")
+        if not self.next_day:
+            pending.append("next day")
+        if pending:
             raise ValueError(f"Waiting for rate data: {', '.join(pending)}")
+
+        if self._previous_day_date and self._current_day_date:
+            if self._previous_day_date + ONE_DAY_INCREMENT != self._current_day_date:
+                raise ValueError(
+                    f"Previous day ({self._previous_day_date}) and current day ({self._current_day_date}) rates are not contiguous"
+                )
+
+        if self._current_day_date and self._next_day_date:
+            if self._current_day_date + ONE_DAY_INCREMENT != self._next_day_date:
+                raise ValueError(
+                    f"Current day ({self._current_day_date}) and next day ({self._next_day_date}) rates are not contiguous"
+                )
 
         if len(self.previous_day) > 0 and len(self.current_day) > 0:
             previous_day_end = self.previous_day[-1]["end"]
@@ -134,9 +165,13 @@ class Rates:
         return day_rates
 
     def reset(self):
-        self._previous_day_updated = None
-        self._current_day_updated = None
-        self._next_day_updated = None
+        self.previous_tariff = None
+        self.previous_day = []
+        self._previous_day_date = None
+        self.current_tariff = None
+        self.current_day = []
+        self._current_day_date = None
+        self._clear_next_day()
 
 
 class Schedule:
