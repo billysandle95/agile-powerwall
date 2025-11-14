@@ -1,10 +1,12 @@
 import datetime as dt
-import zoneinfo
+import json
 import re
+import zoneinfo
+
 import powerwall_tariff as tariff
 import teslapy_wrapper as api_wrapper
-import json
 from jsondiff import diff
+from manual_push import should_push_tariff_data
 
 
 def get_mpan(config_key, required):
@@ -101,7 +103,21 @@ def get_tariff_setting(tariff_code, config_key, default_value):
     return config.get(config_key, default_value)
 
 
-def update_powerwall_tariff():
+# /**
+#  * Update the Powerwall tariff data, optionally forcing an upload.
+#  * @param {bool} force_push - When True, the tariff will be uploaded regardless of detected changes.
+#  * @returns {None}
+#  */
+def update_powerwall_tariff(force_push=False):
+    """Refresh Powerwall tariff data and optionally force an upload.
+
+    Example:
+        # Trigger a manual push irrespective of detected diffs.
+        update_powerwall_tariff(force_push=True)
+    """
+    if not isinstance(force_push, bool):
+        raise ValueError("force_push must be a boolean value")
+
     try:
         IMPORT_RATES.is_valid()
     except ValueError as err:
@@ -119,7 +135,7 @@ def update_powerwall_tariff():
             set_status_message(msg)
             return
 
-    _update_powerwall_tariff()
+    _update_powerwall_tariff(force_push=force_push)
 
     IMPORT_RATES.reset()
     EXPORT_RATES.reset()
@@ -176,22 +192,68 @@ def _update_schedules_for_day(day_date):
             import_rates[i] = {**rate, tariff.PRICE_KEY: 0.0, "session": "free"}
             event_duration -= 30
 
-    import_breaks = get_breaks(IMPORT_RATES.current_tariff, "import_tariff_breaks", default_value=tariff.DEFAULT_BREAKS, required=True)
-    plunge_pricing_breaks = get_breaks(IMPORT_RATES.current_tariff, "plunge_pricing_tariff_breaks", required=False)
-    import_pricing = get_pricing(IMPORT_RATES.current_tariff, "import_tariff_pricing", default_value=tariff.DEFAULT_PRICING, required=True)
-    plunge_pricing_pricing = get_pricing(IMPORT_RATES.current_tariff, "plunge_pricing_tariff_pricing", required=False)
-    import_pricing_names = get_pricing_names(IMPORT_RATES.current_tariff, "import_tariff_pricing_names", required=False)
-    plunge_pricing_pricing_names = get_pricing_names(IMPORT_RATES.current_tariff, "plunge_pricing_tariff_pricing_names", required=False)
+    import_breaks = get_breaks(
+        IMPORT_RATES.current_tariff,
+        "import_tariff_breaks",
+        default_value=tariff.DEFAULT_BREAKS,
+        required=True,
+    )
+    plunge_pricing_breaks = get_breaks(
+        IMPORT_RATES.current_tariff, "plunge_pricing_tariff_breaks", required=False
+    )
+    import_pricing = get_pricing(
+        IMPORT_RATES.current_tariff,
+        "import_tariff_pricing",
+        default_value=tariff.DEFAULT_PRICING,
+        required=True,
+    )
+    plunge_pricing_pricing = get_pricing(
+        IMPORT_RATES.current_tariff, "plunge_pricing_tariff_pricing", required=False
+    )
+    import_pricing_names = get_pricing_names(
+        IMPORT_RATES.current_tariff, "import_tariff_pricing_names", required=False
+    )
+    plunge_pricing_pricing_names = get_pricing_names(
+        IMPORT_RATES.current_tariff,
+        "plunge_pricing_tariff_pricing_names",
+        required=False,
+    )
 
-    import_schedules = tariff.get_import_schedules(import_breaks, import_pricing, import_pricing_names, plunge_pricing_breaks, plunge_pricing_pricing, plunge_pricing_pricing_names, day_date, import_rates)
+    import_schedules = tariff.get_import_schedules(
+        import_breaks,
+        import_pricing,
+        import_pricing_names,
+        plunge_pricing_breaks,
+        plunge_pricing_pricing,
+        plunge_pricing_pricing_names,
+        day_date,
+        import_rates,
+    )
     if import_schedules is None:
         return None, None
 
     if export_rates:
-        export_breaks = get_breaks(EXPORT_RATES.current_tariff, "export_tariff_breaks", default_value=tariff.DEFAULT_BREAKS, required=True)
-        export_pricing = get_pricing(EXPORT_RATES.current_tariff, "export_tariff_pricing", default_value=tariff.DEFAULT_PRICING, required=True)
-        export_pricing_names = get_pricing_names(EXPORT_RATES.current_tariff, "export_tariff_pricing_names", default_value=import_pricing_names, required=False)
-        export_schedules = tariff.get_export_schedules(export_breaks, export_pricing, export_pricing_names, day_date, export_rates)
+        export_breaks = get_breaks(
+            EXPORT_RATES.current_tariff,
+            "export_tariff_breaks",
+            default_value=tariff.DEFAULT_BREAKS,
+            required=True,
+        )
+        export_pricing = get_pricing(
+            EXPORT_RATES.current_tariff,
+            "export_tariff_pricing",
+            default_value=tariff.DEFAULT_PRICING,
+            required=True,
+        )
+        export_pricing_names = get_pricing_names(
+            EXPORT_RATES.current_tariff,
+            "export_tariff_pricing_names",
+            default_value=import_pricing_names,
+            required=False,
+        )
+        export_schedules = tariff.get_export_schedules(
+            export_breaks, export_pricing, export_pricing_names, day_date, export_rates
+        )
     else:
         export_schedules = None
 
@@ -216,8 +278,15 @@ def _get_tariff_data():
     return cache_data
 
 
-def _update_powerwall_tariff():
+# /**
+#  * Internal helper to push tariff data to the Powerwall.
+#  * @param {bool} force_push - Determines if the Powerwall should be updated even when unchanged.
+#  * @returns {None}
+#  */
+def _update_powerwall_tariff(force_push=False):
     config = pyscript.app_config
+    # Example:
+    # _update_powerwall_tariff(force_push=True)
 
     today = dt.date.today()
     import_schedules, export_schedules = _update_schedules_for_day(today)
@@ -228,12 +297,24 @@ def _update_powerwall_tariff():
     tomorrow = today + tariff.ONE_DAY_INCREMENT
     _update_schedules_for_day(tomorrow)
 
-    import_plan = get_tariff_setting(IMPORT_RATES.current_tariff, "tariff_name", "Import tariff")
-    export_plan = get_tariff_setting(EXPORT_RATES.current_tariff, "tariff_name", "Export tariff")
-    import_standing_charge = get_sensor_value(IMPORT_RATES.current_tariff, "import_standing_charge", 0)
-    export_standing_charge = get_sensor_value(EXPORT_RATES.current_tariff, "export_standing_charge", 0)
-    import_schedule_type = get_tariff_setting(IMPORT_RATES.current_tariff, "schedule_type", "week")
-    export_schedule_type = get_tariff_setting(EXPORT_RATES.current_tariff, "schedule_type", "week")
+    import_plan = get_tariff_setting(
+        IMPORT_RATES.current_tariff, "tariff_name", "Import tariff"
+    )
+    export_plan = get_tariff_setting(
+        EXPORT_RATES.current_tariff, "tariff_name", "Export tariff"
+    )
+    import_standing_charge = get_sensor_value(
+        IMPORT_RATES.current_tariff, "import_standing_charge", 0
+    )
+    export_standing_charge = get_sensor_value(
+        EXPORT_RATES.current_tariff, "export_standing_charge", 0
+    )
+    import_schedule_type = get_tariff_setting(
+        IMPORT_RATES.current_tariff, "schedule_type", "week"
+    )
+    export_schedule_type = get_tariff_setting(
+        EXPORT_RATES.current_tariff, "schedule_type", "week"
+    )
     tz_config = config.get("time_zone")
     if tz_config:
         if tz_config.startswith("sensor."):
@@ -244,9 +325,15 @@ def _update_powerwall_tariff():
 
     tariff_data = tariff.to_tariff_data(
         config["tariff_provider"],
-        import_plan, import_standing_charge, import_schedule_type,
-        export_plan, export_standing_charge, export_schedule_type,
-        WEEK_SCHEDULES, today, tz=tz
+        import_plan,
+        import_standing_charge,
+        import_schedule_type,
+        export_plan,
+        export_standing_charge,
+        export_schedule_type,
+        WEEK_SCHEDULES,
+        today,
+        tz=tz,
     )
 
     debug(f"Tariff data:\n{json.dumps(tariff_data)}")
@@ -254,14 +341,18 @@ def _update_powerwall_tariff():
     current_tariff_data = _get_tariff_data()
     tariff_change = diff(tariff_data, current_tariff_data)
     debug(f"Tariff diff:\n{tariff_change}")
-    if tariff_change:
+    should_push, push_reason = should_push_tariff_data(force_push, tariff_change)
+    if should_push:
         api_wrapper.set_powerwall_tariff(
             email=config["email"],
             refresh_token=config["refresh_token"],
-            tariff_data=tariff_data
+            tariff_data=tariff_data,
         )
         debug("Powerwall updated")
-        status_msg = f"Tariff data updated at {dt.datetime.now()}"
+        if push_reason == "forced" and not tariff_change:
+            status_msg = f"Tariff data pushed at {dt.datetime.now()} (forced)"
+        else:
+            status_msg = f"Tariff data updated at {dt.datetime.now()}"
     else:
         status_msg = f"Tariff data checked at {dt.datetime.now()}"
 
@@ -308,6 +399,25 @@ def refresh_tariff_data():
     _update_powerwall_tariff()
 
 
+@service("powerwall.push_tariff_data")
+def push_tariff_data(force_push=True):
+    """yaml
+    name: Push Powerwall tariff data
+    description: Manually pushes the current tariff data to the Powerwall
+    fields:
+        force_push:
+            description: Force the push even if no changes are detected
+            selector:
+                boolean:
+    """
+    # Example:
+    # push_tariff_data(force_push=True)
+    if not isinstance(force_push, bool):
+        raise ValueError("force_push must be a boolean value")
+
+    update_powerwall_tariff(force_push=force_push)
+
+
 @service("powerwall.get_tariff_data", supports_response="only")
 def get_tariff_data():
     """yaml
@@ -316,7 +426,7 @@ def get_tariff_data():
     """
     return api_wrapper.get_powerwall_tariff(
         email=pyscript.app_config["email"],
-        refresh_token=pyscript.app_config["refresh_token"]
+        refresh_token=pyscript.app_config["refresh_token"],
     )
 
 
@@ -332,12 +442,18 @@ def set_tariff_data(tariff_data):
     api_wrapper.set_powerwall_tariff(
         email=pyscript.app_config["email"],
         refresh_token=pyscript.app_config["refresh_token"],
-        tariff_data=tariff_data
+        tariff_data=tariff_data,
     )
 
 
 @service("powerwall.set_settings")
-def set_settings(reserve_percentage=None, mode=None, allow_grid_charging=None, allow_battery_export=None, verify=False):
+def set_settings(
+    reserve_percentage=None,
+    mode=None,
+    allow_grid_charging=None,
+    allow_battery_export=None,
+    verify=False,
+):
     """yaml
     name: Set Powerwall settings
     description: Changes Powerwall settings
@@ -381,14 +497,14 @@ def set_settings(reserve_percentage=None, mode=None, allow_grid_charging=None, a
             reserve_percentage=reserve_percentage,
             mode=mode,
             allow_grid_charging=allow_grid_charging,
-            allow_battery_export=allow_battery_export
+            allow_battery_export=allow_battery_export,
         )
         updated = True
         retry_count += 1
         if verify:
             settings = api_wrapper.get_powerwall_settings(
                 email=pyscript.app_config["email"],
-                refresh_token=pyscript.app_config["refresh_token"]
+                refresh_token=pyscript.app_config["refresh_token"],
             )
             if reserve_percentage is not None:
                 if settings["reserve_percentage"] == reserve_percentage:
@@ -420,5 +536,5 @@ def get_settings():
     """
     return api_wrapper.get_powerwall_settings(
         email=pyscript.app_config["email"],
-        refresh_token=pyscript.app_config["refresh_token"]
+        refresh_token=pyscript.app_config["refresh_token"],
     )

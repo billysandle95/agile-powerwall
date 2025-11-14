@@ -100,6 +100,24 @@ So, in the example above, anything below £0.10 is mapped to Super Off-Peak, bet
 
 `maintain_history`: keep previous schedules, don't calculate schedule afresh (default: false).
 
+### Manual tariff push
+
+The integration now provides a `powerwall.push_tariff_data` service that can be used to manually push the latest tariff data to the Powerwall. The service accepts an optional `force_push` flag that defaults to `true`, ensuring a manual button press always uploads the current data even if no differences are detected.
+
+To create a dashboard button, add a [button card](https://www.home-assistant.io/lovelace/button/) that calls the service:
+
+```
+type: button
+name: Push Powerwall Tariff
+tap_action:
+  action: call-service
+  service: pyscript.powerwall.push_tariff_data
+  data:
+    force_push: true
+```
+
+You can also schedule uploads by creating an automation that triggers the same service shortly before midnight.
+
 
 #### Computed thresholds
 
